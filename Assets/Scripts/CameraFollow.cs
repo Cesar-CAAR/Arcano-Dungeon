@@ -9,6 +9,8 @@ public class CameraFollow : MonoBehaviour
     public float heightOffset = 1.4f;
     public float minPitch = 5f;
     public float maxPitch = 65f;
+    public float collisionOffset = 0.3f;
+    public float minDistance = 0.5f;
 
     private float yaw = 0f;
     private float pitch = 22f;
@@ -39,11 +41,25 @@ public class CameraFollow : MonoBehaviour
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player != null)
         {
+            // Altura del pecho del jugador
             Vector3 targetPivot = player.transform.position + Vector3.up * heightOffset;
             Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
-            Vector3 desiredPosition = targetPivot - (rotation * Vector3.forward * distance);
+            Vector3 dirToCamera = -(rotation * Vector3.forward);
+            Vector3 desiredPosition = targetPivot + (dirToCamera * distance);
 
-            transform.position = desiredPosition;
+            Vector3 finalPosition = desiredPosition;
+
+            // Linecast desde el pecho del jugador hasta la posición deseada de la cámara
+            if (Physics.Linecast(targetPivot, desiredPosition, out RaycastHit hit, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                if (!hit.collider.CompareTag("Player") && !hit.collider.CompareTag("Enemy"))
+                {
+                    float hitDistance = Mathf.Max(hit.distance - collisionOffset, minDistance);
+                    finalPosition = targetPivot + (dirToCamera * hitDistance);
+                }
+            }
+
+            transform.position = finalPosition;
             transform.LookAt(targetPivot);
         }
     }

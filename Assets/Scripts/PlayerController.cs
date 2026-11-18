@@ -1,14 +1,23 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 #pragma warning disable CS0618
+[RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     public float moveSpeed = 5f;
     public float rotationSpeed = 12f;
     public float attackRadius = 2.5f;
+    public int attackDamage = 35;
+    public float gravity = -20f;
+
+    public bool isBlocking { get; private set; }
 
     private Animator animator;
+    private CharacterController controller;
+    private float verticalVelocity = 0f;
+    private bool hasBlockingParam = false;
 
     void Awake()
     {
@@ -16,11 +25,29 @@ public class PlayerController : MonoBehaviour
         if (animator != null)
         {
             animator.applyRootMotion = false;
+            foreach (AnimatorControllerParameter param in animator.parameters)
+            {
+                if (param.name == "isBlocking" && param.type == AnimatorControllerParameterType.Bool)
+                {
+                    hasBlockingParam = true;
+                    break;
+                }
+            }
         }
+
+        controller = GetComponent<CharacterController>();
     }
 
     void Update()
     {
+        // Bloqueo con clic derecho
+        isBlocking = Mouse.current != null && Mouse.current.rightButton.isPressed;
+
+        if (animator != null && hasBlockingParam)
+        {
+            animator.SetBool("isBlocking", isBlocking);
+        }
+
         float horizontal = 0f;
         float vertical = 0f;
 
@@ -38,12 +65,11 @@ public class PlayerController : MonoBehaviour
 
         Vector3 inputDir = new Vector3(horizontal, 0f, vertical).normalized;
         bool isMoving = inputDir.sqrMagnitude > 0.001f;
+        Vector3 moveDirection = Vector3.zero;
 
         if (isMoving)
         {
-            // Movimiento relativo a la orientación de la cámara (estilo Genshin Impact)
             Transform camTransform = Camera.main != null ? Camera.main.transform : null;
-            Vector3 moveDirection;
 
             if (camTransform != null)
             {
@@ -66,8 +92,24 @@ public class PlayerController : MonoBehaviour
                 Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
             }
+        }
 
-            transform.Translate(moveDirection * moveSpeed * Time.deltaTime, Space.World);
+        // Reducir velocidad a la mitad mientras bloquea
+        float currentMoveSpeed = isBlocking ? (moveSpeed * 0.5f) : moveSpeed;
+
+        if (controller != null)
+        {
+            if (controller.isGrounded && verticalVelocity < 0f)
+            {
+                verticalVelocity = -2f;
+            }
+            else
+            {
+                verticalVelocity += gravity * Time.deltaTime;
+            }
+
+            Vector3 velocity = (moveDirection * currentMoveSpeed) + (Vector3.up * verticalVelocity);
+            controller.Move(velocity * Time.deltaTime);
         }
 
         if (animator != null)
@@ -75,6 +117,7 @@ public class PlayerController : MonoBehaviour
             animator.SetBool("isMoving", isMoving);
         }
 
+        // Ataque con clic izquierdo
         bool attackPressed = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
         if (attackPressed)
         {
@@ -85,18 +128,18 @@ public class PlayerController : MonoBehaviour
 
             Vector3 attackOrigin = transform.position + transform.forward;
             Collider[] hitColliders = Physics.OverlapSphere(attackOrigin, attackRadius);
+            HashSet<EnemyHealth> damagedEnemies = new HashSet<EnemyHealth>();
 
             foreach (Collider hit in hitColliders)
             {
                 if (hit.CompareTag("Enemy"))
                 {
-                    WaveManager waveManager = FindObjectOfType<WaveManager>();
-                    if (waveManager != null)
+                    EnemyHealth enemyHealth = hit.GetComponentInParent<EnemyHealth>();
+                    if (enemyHealth != null && !damagedEnemies.Contains(enemyHealth))
                     {
-                        waveManager.EnemyDefeated();
+                        damagedEnemies.Add(enemyHealth);
+                        enemyHealth.TakeDamage(attackDamage);
                     }
-
-                    Destroy(hit.gameObject);
                 }
             }
         }
